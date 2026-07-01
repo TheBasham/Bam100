@@ -6,19 +6,19 @@ const PL = {
   voiceComm: 'PLAYB_Hd6OWbc',
   longComm:  'PLNWlrH3lY3Pw',
 };
-
+ 
 const COMBINATIONS = [
   [PL.bumps],
   [PL.bumps, PL.voiceComm],
   [PL.brbStart, PL.voiceComm, PL.longComm, PL.brbEnd],
 ];
-
+ 
 // Playlists shared across combinations — single global position
 const SHARED_PLAYLISTS = new Set([PL.bumps]);
-
+ 
 // Weight pool: combo1 x2, combo2 x1, combo3 x1 per 4-cycle block
 const COMBO_WEIGHT_POOL = [0, 0, 1, 2];
-
+ 
 const SLOTS = [
   { label:'Slot 1 — Midnight (11:00 PM – 6:59 AM)',
     ranges:[{startH:23,startM:0,endH:23,endM:59},{startH:0,startM:0,endH:6,endM:59}],
@@ -39,7 +39,7 @@ const SLOTS = [
     ranges:[{startH:20,startM:0,endH:22,endM:59}],
     playlistA:'PLQ-w4IseBY80', songsA:3 },
 ];
-
+ 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function shuffle(arr) {
   const a = [...arr];
@@ -56,11 +56,11 @@ function resolveSlot() {
   return SLOTS.find(s=>s.ranges.some(r=>m>=r.startH*60+r.startM && m<=r.endH*60+r.endM))||null;
 }
 function slotKey(slot) { return slot?slot.label:null; }
-
+ 
 // ── Storage ───────────────────────────────────────────────────────────────────
 const CACHE_TTL   = 3*60*60*1000;
 const STATE_KEY   = 'pls_playback_state';
-
+ 
 function savePosition(key, videos, index) {
   try { localStorage.setItem(`pls_pos_${key}`, JSON.stringify({videos,index,savedAt:Date.now()})); }
   catch(e) {}
@@ -95,17 +95,17 @@ function loadState() {
   try { return JSON.parse(localStorage.getItem(STATE_KEY)||'null'); }
   catch(e) { return null; }
 }
-
+ 
 // ── Video ID cache ────────────────────────────────────────────────────────────
 // All video IDs are fetched once and stored here, keyed by playlist ID.
 // Nothing ever calls player.loadPlaylist() after init.
 const videoCache   = {};  // playlistId → [videoId, ...]
 const indexCache   = {};  // playlistId → current index
-
+ 
 function getVideos(plId)   { return videoCache[plId] || []; }
 function getIndex(plId)    { return indexCache[plId] || 0; }
 function setIndex(plId, i) { indexCache[plId] = i; }
-
+ 
 function advanceIndex(plId) {
   const vids = videoCache[plId];
   if (!vids || vids.length === 0) return;
@@ -118,19 +118,19 @@ function advanceIndex(plId) {
     indexCache[plId] = next;
   }
 }
-
+ 
 // ── Playlist ID fetching ──────────────────────────────────────────────────────
 // Uses an iframe-based approach: loads the playlist, reads IDs, then restores.
 // All fetches happen BEFORE playback starts so loadVideoById is the only
 // play call made during actual playback.
-
+ 
 let fetchQueue = Promise.resolve(); // serialize all fetches
-
+ 
 function fetchPlaylistIds(plId) {
   fetchQueue = fetchQueue.then(() => _doFetch(plId));
   return fetchQueue;
 }
-
+ 
 async function _doFetch(plId) {
   if (videoCache[plId]) return; // already fetched
   return new Promise((resolve, reject) => {
@@ -167,11 +167,11 @@ async function _doFetch(plId) {
     console.error(`Failed to fetch "${plId}":`, e);
   });
 }
-
+ 
 // ── Combo pool ────────────────────────────────────────────────────────────────
 let comboPool = [];
 let firstPool = true;
-
+ 
 function nextCombo() {
   if (comboPool.length === 0) {
     if (firstPool) {
@@ -185,7 +185,7 @@ function nextCombo() {
   }
   return comboPool.pop();
 }
-
+ 
 // ── State ─────────────────────────────────────────────────────────────────────
 let player, apiReady = false, started = false;
 let currentSlotKey = null, pendingSlotSwitch = false;
@@ -193,38 +193,38 @@ let mode = 'commercial';
 let songCountA = 0, currentSongsA = 3;
 let currentCombo = [], comboStep = 0;
 let handlingEnd = false;
-
+ 
 // ── UI ────────────────────────────────────────────────────────────────────────
 let halfwayTimer = null;
 let countdownInterval = null;
-
+ 
 function clearHalfwayTimer() { if(halfwayTimer){clearTimeout(halfwayTimer);halfwayTimer=null;} }
-
+ 
 function stopCountdown() {
   if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
   const el = document.getElementById('countdown');
   el.classList.add('hidden');
   el.textContent = '';
 }
-
+ 
 // Playlists that should NOT show a countdown
 const NO_COUNTDOWN = new Set([PL.brbStart, PL.brbEnd]);
-
+ 
 function startCountdown() {
   stopCountdown();
   const plId = currentCombo[comboStep];
   if (NO_COUNTDOWN.has(plId)) return; // excluded playlists
   if (plId === PL.longComm) return;   // long commercials use skip button instead
-
+ 
   // Wait briefly for the player to have an accurate duration
   setTimeout(() => {
     const dur = player.getDuration();
     if (!dur || dur <= 0) return;
-
+ 
     const el = document.getElementById('countdown');
     el.classList.remove('hidden');
     document.getElementById('player-controls-content').classList.remove('hidden');
-
+ 
     function tick() {
       const remaining = Math.max(Math.ceil(dur - player.getCurrentTime()), 0);
       const m = Math.floor(remaining / 60);
@@ -236,7 +236,7 @@ function startCountdown() {
     countdownInterval = setInterval(tick, 1000);
   }, 1200);
 }
-
+ 
 function setSkipVisible(v) {
   const ctrl = document.getElementById('player-controls-content');
   const btn  = document.getElementById('skipBtn');
@@ -245,7 +245,7 @@ function setSkipVisible(v) {
   ctrl.classList.toggle('hidden', !v);
   btn.classList.toggle('hidden', !v);
 }
-
+ 
 function updatePlayingUI() {
   const isComm = mode === 'commercial';
   document.getElementById('yt-controls-blocker').classList.toggle('active', isComm);
@@ -263,7 +263,7 @@ function updatePlayingUI() {
     btn.classList.remove('hidden');
   }
 }
-
+ 
 function startHalfwayTimer() {
   clearHalfwayTimer();
   setTimeout(() => {
@@ -279,7 +279,7 @@ function startHalfwayTimer() {
     }, wait);
   }, 1000);
 }
-
+ 
 // ── Schedule panel ────────────────────────────────────────────────────────────
 function buildScheduleCards() {
   const c = document.getElementById('scheduleCards');
@@ -296,39 +296,39 @@ function updateActiveCard() {
 }
 document.getElementById('scheduleToggleBtn').addEventListener('click',()=>document.getElementById('schedulePanel').classList.add('open'));
 document.getElementById('closePanelBtn').addEventListener('click',()=>document.getElementById('schedulePanel').classList.remove('open'));
-
+ 
 function clockTick() {
   const n=new Date();
   document.getElementById('clock').textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
 }
-
+ 
 // ── YouTube API ───────────────────────────────────────────────────────────────
 function loadYouTubeAPI() {
   const t=document.createElement('script');
   t.src='https://www.youtube.com/iframe_api';
   document.body.appendChild(t);
 }
-
+ 
 window.onYouTubeIframeAPIReady = function() {
   apiReady = true;
   player = new YT.Player('player', {
     height:'100%', width:'100%',
-    playerVars:{autoplay:0,controls:0,modestbranding:1,rel:0,iv_load_policy:3,disablekb:1},
+    playerVars:{autoplay:0,controls:0,modestbranding:1,rel:0,iv_load_policy:3,disablekb:1,cc_load_policy:0,cc_lang_pref:''},
     events:{onReady:onPlayerReady, onStateChange:onPlayerStateChange, onError:onPlayerError}
   });
 };
-
+ 
 function onPlayerError(event) {
   if (!started || ![100,101,150].includes(event.data)) return;
   console.warn(`Skipping unembeddable video (error ${event.data})`);
   playNext();
 }
-
+ 
 function onPlayerReady() {
   playerIsReady = true;
   maybeShowPlayButton();
 }
-
+ 
 async function onPlayerStateChange(event) {
   if (!started) return;
   if (event.data === YT.PlayerState.PLAYING) {
@@ -348,11 +348,11 @@ async function onPlayerStateChange(event) {
     await playNext();
   }
 }
-
+ 
 // ── Preloader ─────────────────────────────────────────────────────────────────
 const SCRAMBLE_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*';
 let playerIsReady=false, scrambleDone=false;
-
+ 
 function scrambleText(el, text, dur) {
   return new Promise(resolve => {
     const len=text.length, t0=performance.now();
@@ -369,14 +369,14 @@ function scrambleText(el, text, dur) {
     requestAnimationFrame(frame);
   });
 }
-
+ 
 function maybeShowPlayButton() {
   if (!playerIsReady||!scrambleDone) return;
   document.getElementById('overlayMsg').textContent='READY';
   document.getElementById('overlayMsg').classList.add('visible');
   setTimeout(()=>document.getElementById('playBtn').classList.add('ready'),400);
 }
-
+ 
 async function runPreloader() {
   const slot=resolveSlot();
   const name=slot?(slot.label.match(/—\s*([^(]+)/)?.[1]?.trim()||'Loading'):'Loading';
@@ -384,7 +384,7 @@ async function runPreloader() {
   scrambleDone=true;
   maybeShowPlayButton();
 }
-
+ 
 // ── Core playback — uses ONLY loadVideoById ───────────────────────────────────
 function playVideo(plId) {
   const vids = getVideos(plId);
@@ -394,7 +394,7 @@ function playVideo(plId) {
   player.loadVideoById(vids[idx]);
   savePosition(plId, vids, idx);
 }
-
+ 
 function playCurrentComboStep() {
   const plId = currentCombo[comboStep];
   mode = 'commercial';
@@ -402,7 +402,7 @@ function playCurrentComboStep() {
   playVideo(plId);
   saveState();
 }
-
+ 
 function playPlaylistA() {
   mode = 'A';
   updatePlayingUI();
@@ -414,7 +414,7 @@ function playPlaylistA() {
   savePosition(slotKey(slot), getVideos(plId), getIndex(plId));
   saveState();
 }
-
+ 
 async function startCommercialBlock() {
   const comboIdx = nextCombo();
   currentCombo   = COMBINATIONS[comboIdx];
@@ -423,7 +423,7 @@ async function startCommercialBlock() {
   console.log(`Commercial block — combo ${comboIdx+1}:`, currentCombo);
   playCurrentComboStep();
 }
-
+ 
 async function playNext() {
   if (!started || handlingEnd) return;
   handlingEnd = true;
@@ -435,7 +435,7 @@ async function playNext() {
       await loadAllPlaylistsAndStart(newSlot);
       return;
     }
-
+ 
     if (mode === 'commercial') {
       advanceIndex(currentCombo[comboStep]);
       comboStep++;
@@ -448,13 +448,13 @@ async function playNext() {
       }
       return;
     }
-
+ 
     // mode === 'A'
     advanceIndex(resolveSlot().playlistA);
     songCountA++;
     console.log(`Playlist A count: ${songCountA}/${currentSongsA}`);
     saveState();
-
+ 
     if (songCountA >= currentSongsA) {
       console.log('Threshold reached → Commercial block');
       await startCommercialBlock();
@@ -465,27 +465,27 @@ async function playNext() {
     handlingEnd = false;
   }
 }
-
+ 
 // ── Initial load — fetch all IDs before first video plays ─────────────────────
 async function loadAllPlaylistsAndStart(slot) {
   currentSlotKey = slotKey(slot);
   currentSongsA  = slot.songsA;
   pendingSlotSwitch = false;
-
+ 
   // Collect all unique playlist IDs needed for this slot
   const allIds = new Set();
   allIds.add(slot.playlistA);
   COMBINATIONS.forEach(combo => combo.forEach(id => allIds.add(id)));
-
+ 
   document.getElementById('scrambleText').textContent = 'LOADING...';
-
+ 
   // Fetch all sequentially (avoids race conditions with the player)
   for (const plId of allIds) {
     if (!videoCache[plId]) {
       await fetchPlaylistIds(plId);
     }
   }
-
+ 
   // Also restore playlist A index from TTL cache if available
   const slotK = slotKey(slot);
   const savedA = loadPositionTTL(slotK, videoCache[slot.playlistA]?.length || 0);
@@ -494,10 +494,10 @@ async function loadAllPlaylistsAndStart(slot) {
     indexCache[slot.playlistA] = savedA.index;
     console.log(`Playlist A resumed from TTL cache, idx ${savedA.index}`);
   }
-
+ 
   document.getElementById('overlay').classList.add('hidden');
   player.unMute();
-
+ 
   // Restore saved playback state or start fresh
   const saved = loadState();
   if (saved && saved.slotKey === currentSlotKey) {
@@ -515,15 +515,15 @@ async function loadAllPlaylistsAndStart(slot) {
       return;
     }
   }
-
+ 
   // No saved state — start with a commercial block
   await startCommercialBlock();
 }
-
+ 
 // ── Skip button ───────────────────────────────────────────────────────────────
 document.getElementById('skipBtn').addEventListener('click', async () => {
   if (!started || handlingEnd) return;
-
+ 
   // Long commercial skip (halfway button)
   if (mode==='commercial' && currentCombo[comboStep]===PL.longComm) {
     clearHalfwayTimer();
@@ -531,11 +531,11 @@ document.getElementById('skipBtn').addEventListener('click', async () => {
     await playNext();
     return;
   }
-
+ 
   // Playlist A skip
   if (mode === 'A') await playNext();
 });
-
+ 
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 function startScheduler() {
   setInterval(() => {
@@ -550,7 +550,7 @@ function startScheduler() {
     }
   }, 30000);
 }
-
+ 
 // ── Play button ───────────────────────────────────────────────────────────────
 document.getElementById('playBtn').addEventListener('click', async () => {
   if (started || !document.getElementById('playBtn').classList.contains('ready')) return;
@@ -561,7 +561,7 @@ document.getElementById('playBtn').addEventListener('click', async () => {
   await loadAllPlaylistsAndStart(slot);
   startScheduler();
 });
-
+ 
 // ── Init ──────────────────────────────────────────────────────────────────────
 buildScheduleCards();
 setInterval(clockTick, 1000);
