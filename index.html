@@ -4,26 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BAM 100</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<div id="player-wrap">
+  <div id="player"></div>
+  <div id="yt-controls-blocker"></div>
+</div>
 
 <div id="overlay">
   <div id="scrambleText"></div>
   <p id="overlayMsg">Now loading</p>
   <button id="playBtn">▶</button>
 </div>
- 
+
 <div id="hud">
   <div id="clock">--:--:--</div>
   <button id="scheduleToggleBtn">Schedule ☰</button>
-  <button id="ccToggleBtn">CC</button>
+  <button id="ccToggleBtn">CC Off</button>
 </div>
- 
+
 <div id="player-controls-content">
   <div id="countdown" class="hidden"></div>
   <button id="skipBtn" class="hidden">⏭ Skip</button>
 </div>
- 
+
 <div id="schedulePanel">
   <div id="schedulePanelHeader">
     <h2>Schedule</h2>
@@ -31,6 +37,7 @@
   </div>
   <div class="panel-cards" id="scheduleCards"></div>
 </div>
-  <script src="script.js"></script>
+
+<script src="script.js"></script>
 </body>
 </html>
