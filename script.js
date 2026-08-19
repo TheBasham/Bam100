@@ -131,7 +131,7 @@ function fetchPlaylistIds(plId) {
   return fetchQueue;
 }
  
-async function _doFetch(plId, attempt = 1) {
+async function _doFetch(plId) {
   if (videoCache[plId]) return; // already fetched
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
@@ -142,15 +142,19 @@ async function _doFetch(plId, attempt = 1) {
       if (list && list.length > 0) {
         player.stopVideo();
         resolve(list);
-      } else if (Date.now()-t0 > 20000) {  // increased to 20s
+      } else if (Date.now()-t0 > 12000) {
         reject(new Error(`Timeout fetching ${plId}`));
       } else {
         setTimeout(check, 250);
       }
     };
-    setTimeout(check, 800); // slightly longer initial wait
+    setTimeout(check, 500);
   }).then(raw => {
-    const saved = loadPositionPermanent(plId, raw.length);
+    // Restore from saved position or start fresh shuffle
+    const isShared = SHARED_PLAYLISTS.has(plId);
+    const saved = isShared
+      ? loadPositionPermanent(plId, raw.length)
+      : loadPositionPermanent(plId, raw.length);
     if (saved) {
       videoCache[plId] = saved.videos;
       indexCache[plId] = saved.index;
@@ -159,13 +163,8 @@ async function _doFetch(plId, attempt = 1) {
       indexCache[plId] = 0;
     }
     console.log(`Fetched "${plId}": ${videoCache[plId].length} videos, idx ${indexCache[plId]}`);
-  }).catch(async e => {
-    if (attempt < 3) {
-      console.warn(`Retrying "${plId}" (attempt ${attempt + 1})...`);
-      await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
-      return _doFetch(plId, attempt + 1);
-    }
-    console.error(`Failed to fetch "${plId}" after ${attempt} attempts:`, e);
+  }).catch(e => {
+    console.error(`Failed to fetch "${plId}":`, e);
   });
 }
  
@@ -298,23 +297,6 @@ function updateActiveCard() {
 document.getElementById('scheduleToggleBtn').addEventListener('click',()=>document.getElementById('schedulePanel').classList.add('open'));
 document.getElementById('closePanelBtn').addEventListener('click',()=>document.getElementById('schedulePanel').classList.remove('open'));
  
-// ── CC toggle ─────────────────────────────────────────────────────────────────
-let captionsOff = true;
-document.getElementById('ccToggleBtn').textContent = 'CC Off';
-document.getElementById('ccToggleBtn').classList.add('cc-off');
-document.getElementById('ccToggleBtn').addEventListener('click', () => {
-  captionsOff = !captionsOff;
-  if (captionsOff) {
-    player.unloadModule('captions');
-    document.getElementById('ccToggleBtn').textContent = 'CC Off';
-    document.getElementById('ccToggleBtn').classList.add('cc-off');
-  } else {
-    player.loadModule('captions');
-    document.getElementById('ccToggleBtn').textContent = 'CC On';
-    document.getElementById('ccToggleBtn').classList.remove('cc-off');
-  }
-});
- 
 function clockTick() {
   const n=new Date();
   document.getElementById('clock').textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
@@ -331,7 +313,7 @@ window.onYouTubeIframeAPIReady = function() {
   apiReady = true;
   player = new YT.Player('player', {
     height:'100%', width:'100%',
-    playerVars:{autoplay:0,controls:0,modestbranding:1,rel:0,iv_load_policy:3,disablekb:1},
+    playerVars:{autoplay:0,controls:0,modestbranding:1,rel:0,iv_load_policy:3,disablekb:1,cc_load_policy:0,cc_lang_pref:''},
     events:{onReady:onPlayerReady, onStateChange:onPlayerStateChange, onError:onPlayerError}
   });
 };
@@ -350,8 +332,6 @@ function onPlayerReady() {
 async function onPlayerStateChange(event) {
   if (!started) return;
   if (event.data === YT.PlayerState.PLAYING) {
-    // Re-apply CC state on every new video since loadVideoById can reset it
-    if (captionsOff) player.unloadModule('captions');
     if (mode === 'commercial' && currentCombo.length > 0 && comboStep < currentCombo.length) {
       const plId = currentCombo[comboStep];
       if (plId === PL.longComm) {
@@ -371,10 +351,7 @@ async function onPlayerStateChange(event) {
  
 // ── Preloader ─────────────────────────────────────────────────────────────────
 const SCRAMBLE_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*';
-let playerIsReady = false;
-let scrambleDone  = false;
-let fetchesDone   = false;
-let preloadSlot   = null; // slot resolved at page load, used by play button
+let playerIsReady=false, scrambleDone=false;
  
 function scrambleText(el, text, dur) {
   return new Promise(resolve => {
@@ -394,77 +371,21 @@ function scrambleText(el, text, dur) {
 }
  
 function maybeShowPlayButton() {
-  if (!playerIsReady || !scrambleDone || !fetchesDone) return;
-  document.getElementById('overlayMsg').textContent = 'READY';
+  if (!playerIsReady||!scrambleDone) return;
+  document.getElementById('overlayMsg').textContent='READY';
   document.getElementById('overlayMsg').classList.add('visible');
-  setTimeout(() => document.getElementById('playBtn').classList.add('ready'), 400);
-}
- 
-// Updates the scramble text to show which playlist is currently loading
-function setLoadingLabel(current, total, plId) {
-  const el = document.getElementById('overlayMsg');
-  el.textContent = `LOADING ${current} OF ${total}`;
-  el.classList.add('visible');
+  setTimeout(()=>document.getElementById('playBtn').classList.add('ready'),400);
 }
  
 async function runPreloader() {
-  const slot = resolveSlot();
-  preloadSlot = slot;
-  const name = slot ? (slot.label.match(/—\s*([^(]+)/)?.[1]?.trim() || 'Loading') : 'Loading';
-  const scrambleEl = document.getElementById('scrambleText');
- 
-  // Run scramble animation and playlist fetching in parallel
-  const animPromise = scrambleText(scrambleEl, name.toUpperCase(), 1400).then(() => {
-    scrambleDone = true;
-    maybeShowPlayButton();
-  });
- 
-  // Start fetching as soon as the player is ready
-  const fetchPromise = waitForPlayer().then(async () => {
-    if (!slot) { fetchesDone = true; maybeShowPlayButton(); return; }
- 
-    const allIds = new Set();
-    allIds.add(slot.playlistA);
-    COMBINATIONS.forEach(combo => combo.forEach(id => allIds.add(id)));
-    const idList = [...allIds];
-    let i = 0;
- 
-    for (const plId of idList) {
-      i++;
-      setLoadingLabel(i, idList.length, plId);
-      if (!videoCache[plId]) await fetchPlaylistIds(plId);
-    }
- 
-    // Restore playlist A TTL position if available
-    const slotK = slotKey(slot);
-    const savedA = loadPositionTTL(slotK, videoCache[slot.playlistA]?.length || 0);
-    if (savedA) {
-      videoCache[slot.playlistA] = savedA.videos;
-      indexCache[slot.playlistA] = savedA.index;
-      console.log(`Playlist A resumed from TTL cache, idx ${savedA.index}`);
-    }
- 
-    fetchesDone = true;
-    maybeShowPlayButton();
-  });
- 
-  await Promise.all([animPromise, fetchPromise]);
-}
- 
-// Waits until the YouTube player is ready before fetching
-function waitForPlayer() {
-  return new Promise(resolve => {
-    if (playerIsReady) { resolve(); return; }
-    const check = setInterval(() => {
-      if (playerIsReady) { clearInterval(check); resolve(); }
-    }, 100);
-  });
-}
- 
-function onPlayerReady() {
-  playerIsReady = true;
+  const slot=resolveSlot();
+  const name=slot?(slot.label.match(/—\s*([^(]+)/)?.[1]?.trim()||'Loading'):'Loading';
+  await scrambleText(document.getElementById('scrambleText'),name.toUpperCase(),1400);
+  scrambleDone=true;
   maybeShowPlayButton();
 }
+ 
+// ── Core playback — uses ONLY loadVideoById ───────────────────────────────────
 function playVideo(plId) {
   const vids = getVideos(plId);
   const idx  = getIndex(plId);
@@ -488,12 +409,8 @@ function playPlaylistA() {
   const slot = resolveSlot();
   if (!slot) return;
   const plId = slot.playlistA;
-  if (!videoCache[plId] || !videoCache[plId].length) {
-    console.error(`Playlist A "${plId}" not in cache — re-fetching...`);
-    fetchPlaylistIds(plId).then(() => playPlaylistA());
-    return;
-  }
   playVideo(plId);
+  // Save playlist A position with TTL key (slot key) so it restores within 3h
   savePosition(slotKey(slot), getVideos(plId), getIndex(plId));
   saveState();
 }
@@ -549,24 +466,27 @@ async function playNext() {
   }
 }
  
-// ── Initial load — all playlists already fetched by preloader ─────────────────
+// ── Initial load — fetch all IDs before first video plays ─────────────────────
 async function loadAllPlaylistsAndStart(slot) {
   currentSlotKey = slotKey(slot);
   currentSongsA  = slot.songsA;
   pendingSlotSwitch = false;
  
-  // Fetch any playlists not already in cache (e.g. on a slot switch to a new slot)
+  // Collect all unique playlist IDs needed for this slot
   const allIds = new Set();
   allIds.add(slot.playlistA);
   COMBINATIONS.forEach(combo => combo.forEach(id => allIds.add(id)));
+ 
+  document.getElementById('scrambleText').textContent = 'LOADING...';
+ 
+  // Fetch all sequentially (avoids race conditions with the player)
   for (const plId of allIds) {
     if (!videoCache[plId]) {
-      console.log(`Slot switch: fetching missing playlist "${plId}"...`);
       await fetchPlaylistIds(plId);
     }
   }
  
-  // Restore playlist A TTL position if available
+  // Also restore playlist A index from TTL cache if available
   const slotK = slotKey(slot);
   const savedA = loadPositionTTL(slotK, videoCache[slot.playlistA]?.length || 0);
   if (savedA) {
@@ -577,7 +497,6 @@ async function loadAllPlaylistsAndStart(slot) {
  
   document.getElementById('overlay').classList.add('hidden');
   player.unMute();
-  if (captionsOff) player.unloadModule('captions');
  
   // Restore saved playback state or start fresh
   const saved = loadState();
@@ -635,7 +554,7 @@ function startScheduler() {
 // ── Play button ───────────────────────────────────────────────────────────────
 document.getElementById('playBtn').addEventListener('click', async () => {
   if (started || !document.getElementById('playBtn').classList.contains('ready')) return;
-  const slot = preloadSlot || resolveSlot();
+  const slot = resolveSlot();
   if (!slot) { alert('No active slot right now.'); return; }
   started = true;
   document.getElementById('playBtn').classList.remove('ready');
