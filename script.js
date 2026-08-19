@@ -605,10 +605,6 @@ function waitForPlayer() {
   });
 }
 
-function onPlayerReady() {
-  playerIsReady = true;
-  maybeShowPlayButton();
-}
 function playVideo(plId) {
   const vids = getVideos(plId);
   const idx = getIndex(plId);
